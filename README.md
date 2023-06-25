@@ -121,10 +121,11 @@ $data = [
     // Set other column values as needed
 ];
 
-Note: When creating a new record with a password make sure to hash it and use password_hash() method and use PASSWORD_DEFAULT as the hashing algorithm, otherwise the authentication() method might not work as expected.
-
 $newRecordId = $absl->create($data);
 ```
+
+Note: When creating a new record with a password make sure to hash it and use password_hash() method and use PASSWORD_DEFAULT as the hashing algorithm, otherwise the authentication() method might not work as expected.
+
 To update an existing record:
 ```php
 $where = 'id';
