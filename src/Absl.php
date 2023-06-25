@@ -1,6 +1,6 @@
 <?php
 
-namespace Retamayo\Absl\Absl;
+namespace Retamayo\Absl;
 
 use PDO;
 use Exception;
