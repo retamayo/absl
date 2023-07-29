@@ -213,7 +213,7 @@ class Absl
         return $data;
     }
 
-    function pagination(int $current_page) {
+    function paginate(int $current_page) {
         $sql = 'SELECT * FROM '.$this->tableName.';';
         $stmt = $this->connection->prepare($sql);
         $stmt->execute();
