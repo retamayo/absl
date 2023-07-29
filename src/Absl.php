@@ -13,10 +13,13 @@ class Absl
     private string $primaryKey;
     private array $columns;
 
+    private int $row_count;
+
     public function __construct(PDO $connection)
     {
         $this->connection = $connection;
         $this->tables = [];
+        $this->row_count = 10;
     }
 
     public function defineTable(string $tableName, string $primaryKey, array $columns)
@@ -199,6 +202,41 @@ class Absl
         } catch (Exception $e) {
             throw new Exception('An error occured while executing the query.');
         }
+    }
+
+    function search(string $search_query, string $column_name) {
+        $search_pattern = "'^".$search_query."'";
+        $sql = "SELECT * FROM ".$this->tableName." WHERE ".$column_name." REGEXP".$search_pattern.";";
+        $stmt = $this->connection->prepare($sql);
+        $stmt->execute();
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $data;
+    }
+
+    function pagination(int $current_page) {
+        $sql = 'SELECT * FROM '.$this->tableName.';';
+        $stmt = $this->connection->prepare($sql);
+        $stmt->execute();
+        $total_rows = $stmt->rowCount();
+        $total_pages = ceil($total_rows / $this->row_count);
+
+        if($current_page <= 0) {
+            $current_page = 1;
+        }
+        elseif ($current_page > $total_pages) {
+            $current_page = $total_pages;
+        }
+ 
+        $start = ($current_page - 1) * $this->row_count;
+        $sql = 'SELECT * FROM ' . $this->tableName . ' LIMIT '.$start.', '.$this->row_count.';';
+        $stmt = $this->connection->prepare($sql);
+        $stmt->execute();
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $data;
+    }
+
+    function set_page_row_count(int $count) {
+        $this->row_count = $count;
     }
 
     public function checkDuplicate(string $uniqueColumn, string $checkValue)
