@@ -7,4 +7,6 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
+    'Retamayo\\Absl\\Absl' => $baseDir . '/src/Absl.php',
+    'Retamayo\\Absl\\Database' => $baseDir . '/src/Database.php',
 );
