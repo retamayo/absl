@@ -88,7 +88,7 @@ class Absl
         $stmt = $this->connection->prepare($sql);
         try {
             $stmt->execute();
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $data = $stmt->fetch(PDO::FETCH_ASSOC);
             return $data;
         } catch (Exception $e) {
             throw new Exception('An error occured while executing the query.');
@@ -204,7 +204,7 @@ class Absl
         }
     }
 
-    function search(string $search_query, string $column_name) {
+    public function search(string $search_query, string $column_name) {
         $search_pattern = "'^".$search_query."'";
         $sql = "SELECT * FROM ".$this->tableName." WHERE ".$column_name." REGEXP".$search_pattern.";";
         $stmt = $this->connection->prepare($sql);
@@ -213,7 +213,7 @@ class Absl
         return $data;
     }
 
-    function paginate(int $current_page) {
+    public function paginate(int $current_page) {
         $sql = 'SELECT * FROM '.$this->tableName.';';
         $stmt = $this->connection->prepare($sql);
         $stmt->execute();
@@ -235,7 +235,7 @@ class Absl
         return $data;
     }
 
-    function set_page_row_count(int $count) {
+    public function set_page_row_count(int $count) {
         $this->row_count = $count;
     }
 
@@ -254,7 +254,7 @@ class Absl
         }
     }
 
-    private function sanitize_value($value)
+    public function sanitize_value($value)
     {
         switch (gettype($value)) {
             case 'string':
@@ -276,7 +276,7 @@ class Absl
         return $value;
     }
 
-    private function sanitize_array_values(array $data)
+    public function sanitize_array_values(array $data)
     {
         foreach ($data as &$value) {
             switch (gettype($value)) {
