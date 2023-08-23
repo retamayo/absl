@@ -204,7 +204,7 @@ class Absl
         }
     }
 
-    public function search(string $search_query, string $column_name) {
+    function search(string $search_query, string $column_name) {
         $search_pattern = "'^".$search_query."'";
         $sql = "SELECT * FROM ".$this->tableName." WHERE ".$column_name." REGEXP".$search_pattern.";";
         $stmt = $this->connection->prepare($sql);
@@ -213,7 +213,7 @@ class Absl
         return $data;
     }
 
-    public function paginate(int $current_page) {
+    function paginate(int $current_page) {
         $sql = 'SELECT * FROM '.$this->tableName.';';
         $stmt = $this->connection->prepare($sql);
         $stmt->execute();
@@ -235,7 +235,7 @@ class Absl
         return $data;
     }
 
-    public function set_page_row_count(int $count) {
+    function set_page_row_count(int $count) {
         $this->row_count = $count;
     }
 
@@ -254,7 +254,7 @@ class Absl
         }
     }
 
-    public function sanitize_value($value)
+    private function sanitize_value($value)
     {
         switch (gettype($value)) {
             case 'string':
@@ -276,7 +276,7 @@ class Absl
         return $value;
     }
 
-    public function sanitize_array_values(array $data)
+    private function sanitize_array_values(array $data)
     {
         foreach ($data as &$value) {
             switch (gettype($value)) {

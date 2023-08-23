@@ -22,8 +22,6 @@ class ComposerStaticInitd657d0079f2a6441fbfcc144bba75357
 
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
-        'Retamayo\\Absl\\Absl' => __DIR__ . '/../..' . '/src/Absl.php',
-        'Retamayo\\Absl\\Database' => __DIR__ . '/../..' . '/src/Database.php',
     );
 
     public static function getInitializer(ClassLoader $loader)
