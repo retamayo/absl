@@ -4,300 +4,344 @@ namespace Retamayo\Absl;
 
 use PDO;
 use Exception;
+use PDOStatement;
+use function array_fill;
+use function array_map;
+use function array_shift;
+use function gettype;
+use function implode;
+use function is_string;
+use function json_last_error;
+use function json_last_error_msg;
+use function password_verify;
+use function print_r;
+use function str_replace;
+use function var_dump;
 
 class Absl
 {
     private PDO $connection;
-    private array $tables;
-    private string $tableName;
-    private string $primaryKey;
-    private array $columns;
+    private array $tables = [];
+    private ?string $tableName = null;
+    private ?string $primaryKey = null;
+    private array $columns = [];
+    private int $rowCount = 10;
 
-    private int $row_count;
 
     public function __construct(PDO $connection)
     {
         $this->connection = $connection;
-        $this->tables = [];
-        $this->row_count = 10;
     }
 
-    public function defineTable(string $tableName, string $primaryKey, array $columns)
+    public function defineTable(string $tableName, string $primaryKey, array $columns): self
     {
-        $this->tables[$tableName] = ["primary" => $primaryKey, "columns" => $columns];
+        $this->tables[$tableName] = [
+            'primary' => $primaryKey,
+            'columns' => $columns,
+        ];
+
+        return $this;
     }
 
-    public function useTable(string $tableName)
+    public function useTable(string $tableName): self
     {
-        if (array_key_exists($tableName, $this->tables)) {
-            $this->tableName = $tableName;
-            $this->primaryKey = $this->tables[$tableName]['primary'];
-            $this->columns = $this->tables[$tableName]['columns'];
-        } else {
-            throw new Exception('Define a table first.');
+        $table = $this->tables[$tableName] ?? null;
+
+        if ($table === null) {
+            throw new Exception('Table "' . $tableName . '" not found, define a table first.');
         }
+
+        $this->tableName = $tableName;
+        $this->primaryKey = $table['primary'];
+        $this->columns = $table['columns'];
+
+        return $this;
     }
 
-    public function list(array $columns = [])
+    public function list(array $columns = []): array
     {
-        if (isset($this->tableName)) {
-            if (count($columns) > 1) {
-                $columns = implode(', ', $columns);
-                $sql = 'SELECT ' . $columns . ' FROM ' . $this->tableName . ';';
-            } else if (count($columns) == 1) {
-                $columns = implode('', $columns);
-                $sql = 'SELECT ' . $columns . ' FROM ' . $this->tableName . ';';
-            } else {
-                $sql = 'SELECT * FROM ' . $this->tableName . ';';
-            }
-            $stmt = $this->connection->prepare($sql);
-            try {
-                $stmt->execute();
-                $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                return $data;
-            } catch (Exception $e) {
-                throw new Exception('An error occured while executing the query.');
-            }
-        } else {
+        if (!isset($this->tableName)) {
             throw new Exception('Use a table first.');
         }
+
+        $sql =
+            'SELECT ' . $this->quote(...($columns !== [] ? $columns : $this->columns)) .
+            ' FROM ' . $this->quote($this->tableName);
+
+        return $this->exec($sql)->fetchAll();
     }
 
-    public function listJSON(array $columns = [])
+    public function listJSON(array $columns = []): string
     {
-        $json = $this->list($columns);
-        return json_encode($json);
+        $data = $this->list($columns);
+
+        return $this->json($data);
     }
 
-    public function fetch(array $columns, string $where, string $whereValue)
+    public function fetch(array $columns, string $where, string $whereValue): array
     {
-        $whereValue = $this->sanitize_value($whereValue);
-
-        if (count($columns) < 1 || $where == '' || $whereValue == '') {
+        if ($columns === [] || $where === '' || $whereValue === '') {
             throw new Exception('Missing or empty arguments passed to function : fetch.');
         }
-        if (count($columns) > 1) {
-            $columns = implode(', ', $columns);
-            $sql = 'SELECT ' . $columns . ' FROM ' . $this->tableName . ' WHERE ' . $where . ' = ' . $whereValue . ';';
-        } else if (count($columns) == 1) {
-            $columns = implode('', $columns);
-            $sql = 'SELECT ' . $columns . ' FROM ' . $this->tableName . ' WHERE ' . $where . ' = ' . $whereValue . ';';
-        } else {
-            throw new Exception('Missing or empty arguments passed to function : fetch.');
-        }
-        $stmt = $this->connection->prepare($sql);
-        try {
-            $stmt->execute();
-            $data = $stmt->fetch(PDO::FETCH_ASSOC);
-            return $data;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
-        }
+
+        $sql =
+            'SELECT ' . $this->quote(...$columns) .
+            ' FROM ' . $this->quote($this->tableName) .
+            ' WHERE ' . $this->quote($where) . ' = ?';
+
+        return $this->exec($sql, $this->sanitizeValue($whereValue))->fetch();
     }
 
-    public function fetchJSON(array $columns, string $where, string $whereValue)
+    public function fetchJSON(array $columns, string $where, string $whereValue): string
     {
-        $json = $this->fetch($columns, $where, $whereValue);
-        return json_encode($json);
+        $data = $this->fetch($columns, $where, $whereValue);
+
+        return $this->json($data);
     }
 
-    public function create(array $columns)
+    public function create(array $rowData): bool
     {
-        $columns = $this->sanitize_array_values($columns);
-        if (count($columns) < 1) {
+        if ($rowData === []) {
             throw new Exception('Missing or empty arguments passed to function : create.');
         }
-        if (count($columns) !== count($this->columns)) {
-            throw new Exception('Number of input parameters does not match number of columns defined in the current table.');
+
+        $columns = array_keys($rowData);
+
+        if (array_diff($columns, $this->columns) !== []) {
+            throw new Exception('Row data does not match of columns defined in the current table.');
         }
-        $columns_keys = array_keys($columns);
-        $columns_values = array_values($columns);
-        $string_columns = '';
-        $string_values = '';
-        foreach ($columns_keys as $column) {
-            $string_columns .= $column . ', ';
-            $string_values .= '?, ';
-        }
-        $string_columns = rtrim($string_columns, ', ');
-        $string_values = rtrim($string_values, ', ');
-        $sql = 'INSERT INTO ' . $this->tableName . ' (' . $string_columns . ') VALUES (' . $string_values . ');';
-        $stmt = $this->connection->prepare($sql);
-        try {
-            $stmt->execute($columns_values);
-            return true;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
-        }
+
+        $sqlValues = implode(
+            ', ',
+            array_fill(0, count($columns), '?')
+        );
+
+        $sql =
+            'INSERT INTO ' . $this->quote($this->tableName) .
+            ' (' . $this->quote(...$columns) . ') ' .
+            'VALUES (' . $sqlValues . ')';
+
+        return (bool)$this->exec($sql, ...array_values($rowData))->rowCount();
     }
 
-    public function update(array $columns, string $where, string $whereValue)
+    public function update(array $rowData, string $where, string $whereValue): int
     {
-        $whereValue = $this->sanitize_value($whereValue);
-        $columns = $this->sanitize_array_values($columns);
-        if (count($columns) < 1 || $where == '' || $whereValue == '') {
+        if ($rowData === [] || $where === '' || $whereValue === '') {
             throw new Exception('Missing or empty arguments passed to function : update.');
         }
 
-        $columns_values = [];
-        foreach ($columns as $key => $value) {
-            $columns_values[] = $key . ' = ?';
-        }
-        $string_columns = implode(', ', $columns_values);
-        $sql = 'UPDATE ' . $this->tableName . ' SET ' . $string_columns . ' WHERE ' . $where . ' = ?;';
-        $stmt = $this->connection->prepare($sql);
+        $columns = array_keys($rowData);
 
-        try {
-            $values = array_values($columns);
-            $new_params = array_merge($values, [$whereValue]);
-            $stmt->execute($new_params);
-            return true;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
+        if (array_diff($columns, $this->columns) !== []) {
+            throw new Exception('Row data does not match of columns defined in the current table.');
         }
+
+        $sets = [];
+        $values = [];
+
+        foreach ($rowData as $column => $value) {
+            $sets[] = $this->quote($column) . ' = ?';
+            $values[] = $value;
+        }
+
+        $sql =
+            'UPDATE ' . $this->quote($this->tableName) . ' SET ' .
+            implode(', ', $sets) .
+            ' WHERE ' . $this->quote($where) . ' = ?';
+        $values[] = $whereValue;
+
+        return $this->exec($sql, ...$values)->rowCount();
     }
 
-    public function delete(string $where, string $whereValue)
+    public function delete(string $where, string $whereValue): int
     {
-        $whereValue = $this->sanitize_value($whereValue);
-        if ($where == '' || $whereValue == '') {
+        if ($where === '' || $whereValue === '') {
             throw new Exception('Missing or empty arguments passed to function : delete.');
         }
-        $sql = 'DELETE FROM ' . $this->tableName . ' WHERE ' . $where . ' = ?;';
-        $stmt = $this->connection->prepare($sql);
-        try {
-            $stmt->execute(array($whereValue));
-            return true;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
-        }
+
+        $sql =
+            'DELETE FROM ' . $this->quote($this->tableName) .
+            ' WHERE ' . $this->quote($where) . ' = ?';
+
+        return $this->exec($sql, $whereValue)->rowCount();
     }
 
-    public function authenticate(array $credentials)
+    public function authenticate(array $credentials): bool
     {
-        if (count($credentials) > 2) {
-            throw new Exception('The arguments passed to function : authenticate contain more than 2 items.');
+        if (count($credentials) !== 2) {
+            throw new Exception('The arguments passed to function : authenticate must contain exactly 2 items.');
         }
 
         $credentialsKeys = array_keys($credentials);
         $credentialsValues = array_values($credentials);
 
-        $credentialXKey = $credentialsKeys[0];
-        $credentialXValue = $credentialsValues[0];
+        $userColumn = $credentialsKeys[0];
+        $userHash = $credentialsValues[0];
 
-        $credentialYKey = $credentialsKeys[1];
-        $credentialYValue = $credentialsValues[1];
+        $passwordColumn = $credentialsKeys[1];
+        $passwordHash = $credentialsValues[1];
 
-        $sql = 'SELECT * FROM ' . $this->tableName . ' WHERE ' . $credentialXKey . ' = ? LIMIT 1;';
-        $stmt = $this->connection->prepare($sql);
-        try {
-            $stmt->execute(array($credentialXValue));
-            if ($stmt->rowCount() > 0) {
-                $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                if (password_verify($credentialYValue, $data[0][$credentialYKey])) {
-                    return true;
-                }
-                return false;
-            }
-            return false;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
-        }
+        $sql =
+            'SELECT ' . $this->quote($passwordColumn) .
+            ' FROM ' . $this->quote($this->tableName) .
+            ' WHERE ' . $this->quote($userColumn) . ' = ? LIMIT 1';
+
+        $hash = $this->exec($sql, $userHash)->fetchColumn();
+
+        return is_string($hash) && password_verify($passwordHash, $hash);
     }
 
-    public function search(string $search_query, string $column_name) {
-        $search_pattern = "'^".$search_query."'";
-        $sql = "SELECT * FROM ".$this->tableName." WHERE ".$column_name." REGEXP".$search_pattern.";";
-        $stmt = $this->connection->prepare($sql);
-        $stmt->execute();
-        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        return $data;
-    }
-
-    public function paginate(int $current_page) {
-        $sql = 'SELECT * FROM '.$this->tableName.';';
-        $stmt = $this->connection->prepare($sql);
-        $stmt->execute();
-        $total_rows = $stmt->rowCount();
-        $total_pages = ceil($total_rows / $this->row_count);
-
-        if($current_page <= 0) {
-            $current_page = 1;
-        }
-        elseif ($current_page > $total_pages) {
-            $current_page = $total_pages;
-        }
- 
-        $start = ($current_page - 1) * $this->row_count;
-        $sql = 'SELECT * FROM ' . $this->tableName . ' LIMIT '.$start.', '.$this->row_count.';';
-        $stmt = $this->connection->prepare($sql);
-        $stmt->execute();
-        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        return $data;
-    }
-
-    public function set_page_row_count(int $count) {
-        $this->row_count = $count;
-    }
-
-    public function checkDuplicate(string $uniqueColumn, string $checkValue)
+    public function search(string $pattern, string $inColumn): array
     {
-        $sql = 'SELECT * FROM ' . $this->tableName . ' WHERE ' . $uniqueColumn . ' = ? LIMIT 1;';
-        $stmt = $this->connection->prepare($sql);
-        try {
-            $stmt->execute(array($checkValue));
-            if ($stmt->rowCount() > 0) {
-                return true;
-            }
-            return false;
-        } catch (Exception $e) {
-            throw new Exception('An error occured while executing the query.');
+        $sql =
+            'SELECT ' . $this->quote(...$this->columns) .
+            ' FROM ' . $this->quote($this->tableName) .
+            ' WHERE ' . $this->quote($inColumn) . ' REGEXP "^' . $pattern . '"';
+
+        return $this->exec($sql)->fetchAll();
+    }
+
+    public function setPageRowCount(int $count): self
+    {
+        $this->rowCount = $count;
+
+        return $this;
+    }
+
+    public function paginate(int $currentPage): array
+    {
+        $totalRows = $this->exec('SELECT COUNT(*) FROM ' . $this->quote($this->tableName))->fetchColumn();
+
+        $totalPages = ceil($totalRows / $this->rowCount);
+        $currentPage = min($totalPages, max(1, $currentPage));
+        $start = --$currentPage * $this->rowCount;
+        var_dump($start, $this->rowCount);
+
+        $sql =
+            'SELECT ' . $this->quote(...$this->columns) .
+            ' FROM ' . $this->quote($this->tableName) .
+            ' LIMIT ?, ?';
+
+        return $this->exec($sql, $start, $this->rowCount)->fetchAll();
+    }
+
+    public function checkDuplicate(string $uniqueColumn, string $checkValue): bool
+    {
+        $sql =
+            'SELECT 0 FROM ' . $this->quote($this->tableName) .
+            ' WHERE ' . $this->quote($uniqueColumn) . ' = ? LIMIT 1';
+
+        return (bool)$this->exec($sql, $checkValue)->rowCount();
+    }
+
+    private function sanitizeValue($value)
+    {
+        $type = gettype($value);
+
+        switch ($type) {
+            case 'boolean':
+            case 'integer':
+            case 'double':
+                return $value;
+            case 'string':
+                return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Sanitize HTML entities
+            case 'object':
+            case 'array':
+                return $this->json((array)$value);
+            case 'NULL':
+                return 'NULL';
+            default:
+                throw new Exception('Unsanitizable value type, given ' . $type);
         }
     }
 
-    public function sanitize_value($value)
+    private function quote(string ...$names): string
+    {
+        $quotes = array_map(
+            static fn(string $v) => sprintf('`%s`', str_replace('`', '\`', $v)),
+            $names
+        );
+
+        return implode(', ', $quotes);
+    }
+
+    private function exec(string $sql, ...$values): object
+    {
+        try {
+            $values = array_map(fn($p) => $this->sanitizeValue($p), $values);
+            $stmt = $this->connection->prepare($sql);
+
+            foreach ($values as $key => $value) {
+                $stmt->bindValue(++$key, $value, $this->pdoTypeFor($value));
+            }
+
+            $stmt->execute();
+
+            return new class($stmt) {
+                private PDOStatement $stmt;
+
+                public function __construct(PDOStatement $stmt)
+                {
+                    $this->stmt = $stmt;
+                }
+
+                public function __destruct()
+                {
+                    $this->stmt->closeCursor();
+                }
+
+                public function fetch(): array
+                {
+                    return $this->stmt->fetch(PDO::FETCH_ASSOC);
+                }
+
+                public function fetchAll(): array
+                {
+                    return $this->stmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+
+                public function fetchColumn()
+                {
+                    $row = $this->fetch();
+
+                    return array_shift($row);
+                }
+
+                public function rowCount(): int
+                {
+                    return $this->stmt->rowCount();
+                }
+            };
+        } catch (Exception $e) {
+            throw new Exception('An error occurred while executing the query.', 0, $e);
+        }
+    }
+  
+    public function pdoTypeFor($value): int
     {
         switch (gettype($value)) {
             case 'string':
-                $value = htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Sanitize HTML entities
-                break;
+                return PDO::PARAM_STR;
             case 'integer':
-                $value = (int) $value; // Convert to integer
-                break;
             case 'double':
-                $value = (float) $value; // Convert to float
-                break;
+                return PDO::PARAM_INT;
             case 'boolean':
-                $value = (bool) $value; // Convert to boolean
-                break;
+                return PDO::PARAM_BOOL;
+            case 'NULL':
+                return PDO::PARAM_NULL;
             default:
-                $value = htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Sanitize HTML entities
-                break;
+                throw new Exception('Missing PDO type for ' . gettype($value));
         }
-        return $value;
     }
 
-    public function sanitize_array_values(array $data)
+    private function json($data): string
     {
-        foreach ($data as &$value) {
-            switch (gettype($value)) {
-                case 'string':
-                    $value = htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Sanitize HTML entities
-                    break;
-                case 'integer':
-                    $value = (int) $value; // Convert to integer
-                    break;
-                case 'double':
-                    $value = (float) $value; // Convert to float
-                    break;
-                case 'boolean':
-                    $value = (bool) $value; // Convert to boolean
-                    break;
-                default:
-                    $value = htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // Sanitize HTML entities
-                    break;
-            }
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+
+        if ($json === false) {
+            throw new Exception('JSON error: ' . json_last_error_msg(), json_last_error());
         }
-        unset($value); // Unset the reference to the last value to avoid unexpected behavior
-        return $data;
+
+        return $json;
     }
 }
