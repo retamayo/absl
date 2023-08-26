@@ -316,7 +316,7 @@ class Absl
             throw new Exception('An error occurred while executing the query.', 0, $e);
         }
     }
-
+  
     public function pdoTypeFor($value): int
     {
         switch (gettype($value)) {
